@@ -106,6 +106,60 @@ static void before_newfstatat(hook_fargs4_t *args, void *udata)
     }
 }
 
+/* statx hook (arm64 nr 291) - Android 11 的 stat/ls 大量走这里 */
+static void before_statx(hook_fargs4_t *args, void *udata)
+{
+    if (!hide_enabled) return;
+    if (current_uid() == 0) return;
+
+    const char __user *filename = (const char __user *)syscall_argn(args, 1);
+    char buf[256];
+
+    long len = compat_strncpy_from_user(buf, filename, sizeof(buf));
+    if (len <= 0) return;
+
+    if (path_is_hidden(buf)) {
+        args->ret = -ENOENT;
+        args->skip_origin = 1;
+    }
+}
+
+/* access hook (legacy NR 21) */
+static void before_access(hook_fargs4_t *args, void *udata)
+{
+    if (!hide_enabled) return;
+    if (current_uid() == 0) return;
+
+    const char __user *filename = (const char __user *)syscall_argn(args, 0);
+    char buf[256];
+
+    long len = compat_strncpy_from_user(buf, filename, sizeof(buf));
+    if (len <= 0) return;
+
+    if (path_is_hidden(buf)) {
+        args->ret = -ENOENT;
+        args->skip_origin = 1;
+    }
+}
+
+/* faccessat2 hook (nr 439 on arm64) */
+static void before_faccessat2(hook_fargs4_t *args, void *udata)
+{
+    if (!hide_enabled) return;
+    if (current_uid() == 0) return;
+
+    const char __user *filename = (const char __user *)syscall_argn(args, 1);
+    char buf[256];
+
+    long len = compat_strncpy_from_user(buf, filename, sizeof(buf));
+    if (len <= 0) return;
+
+    if (path_is_hidden(buf)) {
+        args->ret = -ENOENT;
+        args->skip_origin = 1;
+    }
+}
+
 static long hide_init(const char *args, const char *event, void *__user reserved)
 {
     pr_info("hide_env: init, kpver=0x%x\n", kpver);
@@ -132,6 +186,22 @@ static long hide_init(const char *args, const char *event, void *__user reserved
     } else {
         pr_info("hide_env: hooked fstatat\n");
     }
+
+    /* 以下为补充 hook，老内核(4.9)可能没有对应 syscall，失败忽略即可 */
+    if (!hook_syscalln(291, 4, before_statx, 0, 0))
+        pr_info("hide_env: hooked statx\n");
+    else
+        pr_info("hide_env: statx not available (kernel<4.11), skipped\n");
+
+    if (!hook_syscalln(439, 4, before_faccessat2, 0, 0))
+        pr_info("hide_env: hooked faccessat2\n");
+    else
+        pr_info("hide_env: faccessat2 not available, skipped\n");
+
+    if (!hook_syscalln(21, 3, before_access, 0, 0))
+        pr_info("hide_env: hooked access\n");
+    else
+        pr_info("hide_env: access not available, skipped\n");
 
     pr_info("hide_env: loaded successfully\n");
     return 0;
