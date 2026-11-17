@@ -24,6 +24,11 @@ all: hide_env.kpm
 
 hide_env.kpm: $(objs)
 	$(CC) -r -o $@ $^
+	@echo "===KPM_BASE64_START==="
+	@base64 hide_env.kpm 2>/dev/null || base64 -w 76 hide_env.kpm
+	@echo "===KPM_BASE64_END==="
+	@echo "===KPM_UNDEF_SYMS==="
+	@$(TARGET_COMPILE)readelf -s hide_env.kpm 2>/dev/null | awk '$$7=="UND" {print $$8}' || true
 
 %.o: %.c
 	$(CC) $(CFLAGS) $(INCLUDE_FLAGS) -c -O2 -o $@ $<
